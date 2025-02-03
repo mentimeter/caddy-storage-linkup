@@ -31,7 +31,7 @@ type Linkup struct {
 
 func (Linkup) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID: "caddy.linkup",
+		ID: "caddy.storage.linkup",
 		New: func() caddy.Module {
 			return new(Linkup)
 		},
@@ -80,34 +80,42 @@ func (s *Linkup) Provision(ctx caddy.Context) error {
 }
 
 func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
+	// POST /linkup/certificate-cache
 	return nil
 }
 
 func (s *Linkup) Load(_ context.Context, key string) ([]byte, error) {
+	// GET /linkup/certificate-cache/{key} - TODO: Does this work? Some keys might have '/', for example
 	return []byte{}, nil
 }
 
 func (s *Linkup) Delete(ctx context.Context, key string) error {
+	// DELETE /linkup/certificate-cache/{key}
 	return nil
 }
 
 func (s *Linkup) Exists(ctx context.Context, key string) bool {
+	// use `s.Load()`
 	return false
 }
 
 func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string, error) {
+	// GET /linkup/certificate-cache
 	return []string{}, nil
 }
 
 func (s *Linkup) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
+	// use `s.Load()`
 	return certmagic.KeyInfo{}, nil
 }
 
 func (s *Linkup) Lock(ctx context.Context, key string) error {
+	// noop
 	return nil
 }
 
 func (s *Linkup) Unlock(_ context.Context, key string) error {
+	// noop
 	return nil
 }
 

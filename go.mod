@@ -1,4 +1,4 @@
-module github.com/mentimeter/caddy-linkup
+module github.com/mentimeter/caddy-storage-linkup
 
 go 1.22
 
