@@ -1,7 +1,15 @@
 package caddy_storage_cf_kv
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -22,7 +30,23 @@ func init() {
 	caddy.RegisterModule(Linkup{})
 }
 
+type CertificateCacheResponse struct {
+	DataBase64   string `json:"data_base64"`
+	Size         int    `json:"size"`
+	LastModified uint64 `json:"last_modified"`
+}
+
+func (r *CertificateCacheResponse) DecodedData() ([]byte, error) {
+	decoded, err := base64.StdEncoding.DecodeString(r.DataBase64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode base64 string: %w", err)
+	}
+
+	return decoded, nil
+}
+
 type Linkup struct {
+	client    *http.Client       `json:"-"`
 	Logger    *zap.SugaredLogger `json:"-"`
 	ctx       context.Context
 	WorkerUrl string `json:"worker_url,omitempty"`
@@ -80,33 +104,111 @@ func (s *Linkup) Provision(ctx caddy.Context) error {
 }
 
 func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
-	// POST /linkup/certificate-cache
+	var base64Value []byte
+	base64.StdEncoding.Encode(base64Value, value)
+
+	body := map[string]interface{}{"data_base64": string(base64Value)}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, key), bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return err
+	}
+
+	res, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != 200 {
+		return fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
+	}
+
 	return nil
 }
 
-func (s *Linkup) Load(_ context.Context, key string) ([]byte, error) {
-	// GET /linkup/certificate-cache/{key} - TODO: Does this work? Some keys might have '/', for example
-	return []byte{}, nil
+func (s *Linkup) Load(ctx context.Context, key string) ([]byte, error) {
+	certificateCache, err := s.LoadCache(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	decodedValue, err := certificateCache.DecodedData()
+	if err != nil {
+		return nil, err
+	}
+
+	return decodedValue, nil
 }
 
 func (s *Linkup) Delete(ctx context.Context, key string) error {
-	// DELETE /linkup/certificate-cache/{key}
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, key), nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
 	return nil
 }
 
 func (s *Linkup) Exists(ctx context.Context, key string) bool {
-	// use `s.Load()`
-	return false
+	_, err := s.Load(ctx, key)
+
+	return err == nil
 }
 
 func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string, error) {
-	// GET /linkup/certificate-cache
-	return []string{}, nil
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/linkup/certificate-cache/keys", s.WorkerUrl), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
+	}
+
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read body: %v", err)
+	}
+
+	var keys []string
+	err = json.Unmarshal(resBody, &keys)
+	if err != nil {
+		return nil, err
+	}
+
+	return keys, nil
 }
 
 func (s *Linkup) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
+	cache, err := s.LoadCache(ctx, key)
+	if err != nil {
+		return certmagic.KeyInfo{}, err
+	}
+
 	// use `s.Load()`
-	return certmagic.KeyInfo{}, nil
+	return certmagic.KeyInfo{
+		Key:        key,
+		Size:       int64(cache.Size),
+		Modified:   time.Unix(int64(cache.LastModified), 0),
+		IsTerminal: true,
+	}, nil
 }
 
 func (s *Linkup) Lock(ctx context.Context, key string) error {
@@ -119,6 +221,36 @@ func (s *Linkup) Unlock(_ context.Context, key string) error {
 	return nil
 }
 
-func (s Linkup) String() string {
-	return ""
+func (s *Linkup) LoadCache(ctx context.Context, key string) (CertificateCacheResponse, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, key), nil)
+	if err != nil {
+		return CertificateCacheResponse{}, err
+	}
+
+	res, err := s.client.Do(req)
+	if err != nil {
+		return CertificateCacheResponse{}, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != 200 {
+		if res.StatusCode == 404 {
+			return CertificateCacheResponse{}, fs.ErrNotExist
+		} else {
+			return CertificateCacheResponse{}, fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
+		}
+	}
+
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return CertificateCacheResponse{}, fmt.Errorf("failed to read body: %v", err)
+	}
+
+	var certificateCache CertificateCacheResponse
+	err = json.Unmarshal(resBody, &certificateCache)
+	if err != nil {
+		return CertificateCacheResponse{}, err
+	}
+
+	return certificateCache, nil
 }
