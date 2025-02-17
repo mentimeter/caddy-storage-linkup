@@ -241,7 +241,6 @@ func (s *Linkup) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error
 		return certmagic.KeyInfo{}, err
 	}
 
-	// use `s.Load()`
 	return certmagic.KeyInfo{
 		Key:        key,
 		Size:       int64(cache.Size),
