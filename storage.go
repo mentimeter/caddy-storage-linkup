@@ -106,10 +106,7 @@ func (s *Linkup) Provision(ctx caddy.Context) error {
 }
 
 func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
-	var base64Value []byte
-	base64.StdEncoding.Encode(base64Value, value)
-
-	body := map[string]interface{}{"data_base64": string(base64Value)}
+	body := map[string]interface{}{"data_base64": base64.StdEncoding.EncodeToString(value)}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return err
