@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -112,7 +113,8 @@ func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
 		return err
 	}
 
-	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, key), bytes.NewBuffer(jsonBody))
+	url := fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, url.PathEscape(key))
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return err
 	}
@@ -145,7 +147,8 @@ func (s *Linkup) Load(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (s *Linkup) Delete(ctx context.Context, key string) error {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, key), nil)
+	url := fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, url.PathEscape(key))
+	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err
 	}
@@ -166,7 +169,8 @@ func (s *Linkup) Exists(ctx context.Context, key string) bool {
 }
 
 func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/linkup/certificate-cache/keys", s.WorkerUrl), nil)
+	url := fmt.Sprintf("%s/linkup/certificate-cache/keys", s.WorkerUrl)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +225,8 @@ func (s *Linkup) Unlock(_ context.Context, key string) error {
 }
 
 func (s *Linkup) LoadCache(ctx context.Context, key string) (CertificateCacheResponse, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, key), nil)
+	url := fmt.Sprintf("%s/linkup/certificate-cache/%s", s.WorkerUrl, url.PathEscape(key))
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return CertificateCacheResponse{}, err
 	}
