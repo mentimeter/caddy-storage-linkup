@@ -118,6 +118,7 @@ func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	res, err := s.client.Do(req)
 	if err != nil {
