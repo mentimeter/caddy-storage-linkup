@@ -100,6 +100,8 @@ func (s *Linkup) Provision(ctx caddy.Context) error {
 	s.WorkerUrl = caddy.NewReplacer().ReplaceAll(s.WorkerUrl, "")
 	s.Token = caddy.NewReplacer().ReplaceAll(s.Token, "")
 
+	s.client = http.DefaultClient
+
 	return nil
 }
 
