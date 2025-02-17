@@ -126,6 +126,18 @@ func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
 	defer res.Body.Close()
 
 	if res.StatusCode != 200 {
+		resBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read body: %v", err)
+		}
+
+		s.Logger.Infow("Received a non-200 response from worker",
+			"method", "PUT",
+			"url", url,
+			"response_status", res.StatusCode,
+			"response_body", string(resBody),
+		)
+
 		return fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
 	}
 
@@ -159,6 +171,22 @@ func (s *Linkup) Delete(ctx context.Context, key string) error {
 	}
 	defer res.Body.Close()
 
+	if res.StatusCode != 200 {
+		resBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read body: %v", err)
+		}
+
+		s.Logger.Infow("Received a non-200 response from worker",
+			"method", "DELETE",
+			"url", url,
+			"response_status", res.StatusCode,
+			"response_body", string(resBody),
+		)
+
+		return fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
+	}
+
 	return nil
 }
 
@@ -181,13 +209,20 @@ func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string,
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
-	}
-
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read body: %v", err)
+	}
+
+	if res.StatusCode != 200 {
+		s.Logger.Infow("Received a non-200 response from worker",
+			"method", "GET",
+			"url", url,
+			"response_status", res.StatusCode,
+			"response_body", string(resBody),
+		)
+
+		return nil, fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
 	}
 
 	var keys []string
@@ -237,17 +272,24 @@ func (s *Linkup) LoadCache(ctx context.Context, key string) (CertificateCacheRes
 	}
 	defer res.Body.Close()
 
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return CertificateCacheResponse{}, fmt.Errorf("failed to read body: %v", err)
+	}
+
 	if res.StatusCode != 200 {
+		s.Logger.Infow("Received a non-200 response from worker",
+			"method", "GET",
+			"url", url,
+			"response_status", res.StatusCode,
+			"response_body", string(resBody),
+		)
+
 		if res.StatusCode == 404 {
 			return CertificateCacheResponse{}, fs.ErrNotExist
 		} else {
 			return CertificateCacheResponse{}, fmt.Errorf("worker responded with HTTP %d", res.StatusCode)
 		}
-	}
-
-	resBody, err := io.ReadAll(res.Body)
-	if err != nil {
-		return CertificateCacheResponse{}, fmt.Errorf("failed to read body: %v", err)
 	}
 
 	var certificateCache CertificateCacheResponse
