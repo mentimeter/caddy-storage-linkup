@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -98,7 +99,7 @@ func (s *Linkup) Provision(ctx caddy.Context) error {
 	// ```
 	// which would replace `{env.LINKUP_WORKER_URL}` with the environemnt variable value
 	// of LINKUP_WORKER_URL at runtime.
-	s.WorkerUrl = caddy.NewReplacer().ReplaceAll(s.WorkerUrl, "")
+	s.WorkerUrl = strings.TrimRight(caddy.NewReplacer().ReplaceAll(s.WorkerUrl, ""), "/")
 	s.Token = caddy.NewReplacer().ReplaceAll(s.Token, "")
 
 	s.client = http.DefaultClient
