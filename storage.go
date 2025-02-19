@@ -120,6 +120,7 @@ func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
 
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -166,6 +167,7 @@ func (s *Linkup) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
 
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -204,6 +206,7 @@ func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string,
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
 
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -266,6 +269,7 @@ func (s *Linkup) LoadCache(ctx context.Context, key string) (CertificateCacheRes
 	if err != nil {
 		return CertificateCacheResponse{}, err
 	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
 
 	res, err := s.client.Do(req)
 	if err != nil {
