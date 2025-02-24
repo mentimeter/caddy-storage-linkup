@@ -1,4 +1,4 @@
-package caddy_storage_cf_kv
+package storage
 
 import (
 	"bytes"
@@ -18,6 +18,13 @@ import (
 	"github.com/caddyserver/certmagic"
 	"go.uber.org/zap"
 )
+
+// This value is filled by the Go linker during the build process.
+// For example:
+//
+//	XCADDY_GO_BUILD_FLAGS='-ldflags="-X github.com/mentimeter/caddy-storage-linkup.linkupVersion=2.1.0"' xcaddy build \
+//	    --with github.com/mentimeter/caddy-storage-linkup
+var linkupVersion string
 
 // Interface guards
 var (
@@ -90,6 +97,8 @@ func (s *Linkup) Provision(ctx caddy.Context) error {
 	s.Logger = ctx.Logger(s).Sugar()
 	s.ctx = ctx.Context
 
+	s.Logger.Infof("Caddy build for Linkup version: %s", linkupVersion)
+
 	// This adds support to the documented Caddy way to get runtime environment variables.
 	// Reference: https://caddyserver.com/docs/caddyfile/concepts#environment-variables
 	//
@@ -121,6 +130,7 @@ func (s *Linkup) Store(_ context.Context, key string, value []byte) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+	req.Header.Set("x-linkup-version", linkupVersion)
 
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -168,6 +178,7 @@ func (s *Linkup) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+	req.Header.Set("x-linkup-version", linkupVersion)
 
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -207,6 +218,7 @@ func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string,
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+	req.Header.Set("x-linkup-version", linkupVersion)
 
 	query := req.URL.Query()
 	query.Add("path", path)
@@ -275,6 +287,7 @@ func (s *Linkup) LoadCache(ctx context.Context, key string) (CertificateCacheRes
 		return CertificateCacheResponse{}, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+	req.Header.Set("x-linkup-version", linkupVersion)
 
 	res, err := s.client.Do(req)
 	if err != nil {
