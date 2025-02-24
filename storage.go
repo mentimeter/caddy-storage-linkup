@@ -208,6 +208,11 @@ func (s *Linkup) List(_ context.Context, path string, recursive bool) ([]string,
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
 
+	query := req.URL.Query()
+	query.Add("path", path)
+	query.Add("recursive", fmt.Sprintf("%t", recursive))
+	req.URL.RawQuery = query.Encode()
+
 	res, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
