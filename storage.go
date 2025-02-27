@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -48,11 +49,12 @@ func (r *CertificateCacheResponse) DecodedData() ([]byte, error) {
 }
 
 type Linkup struct {
-	client    *http.Client       `json:"-"`
-	Logger    *zap.SugaredLogger `json:"-"`
-	ctx       context.Context
-	WorkerUrl string `json:"worker_url,omitempty"`
-	Token     string `json:"token,omitempty"`
+	Logger           *zap.SugaredLogger `json:"-"`
+	WorkerUrl        string             `json:"worker_url,omitempty"`
+	Token            string             `json:"token,omitempty"`
+	client           *http.Client       `json:"-"`
+	ctx              context.Context    `json:"-"`
+	lockStopChannels *sync.Map          `json:"-"`
 }
 
 func (Linkup) CaddyModule() caddy.ModuleInfo {
@@ -89,6 +91,7 @@ func (s *Linkup) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 func (s *Linkup) Provision(ctx caddy.Context) error {
 	s.Logger = ctx.Logger(s).Sugar()
 	s.ctx = ctx.Context
+	s.lockStopChannels = &sync.Map{}
 
 	// This adds support to the documented Caddy way to get runtime environment variables.
 	// Reference: https://caddyserver.com/docs/caddyfile/concepts#environment-variables
@@ -259,12 +262,111 @@ func (s *Linkup) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error
 }
 
 func (s *Linkup) Lock(ctx context.Context, key string) error {
-	// noop
-	return nil
+	lockURL := fmt.Sprintf("%s/linkup/certificate-cache/locks/%s", s.WorkerUrl, url.PathEscape(key))
+
+	for {
+		req, err := http.NewRequestWithContext(ctx, "GET", lockURL, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+
+		res, err := s.client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		switch res.StatusCode {
+		case http.StatusLocked:
+			s.Logger.Infow("Lock is held; waiting before retrying", "url", lockURL)
+			select {
+			case <-time.After(1 * time.Second):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		case http.StatusOK:
+			s.Logger.Infow("Lock acquired", "url", lockURL)
+
+			stopChan := make(chan struct{})
+			s.lockStopChannels.Store(key, stopChan)
+
+			go func(ctx context.Context, key string, stopChan chan struct{}) {
+				ticker := time.NewTicker(1 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-stopChan:
+						s.Logger.Infow("Stopping lock touch goroutine", "key", key)
+
+						return
+					case <-ctx.Done():
+						s.Logger.Infow("Context cancelled in lock touch goroutine", "key", key)
+
+						return
+					case <-ticker.C:
+						touchURL := fmt.Sprintf("%s/linkup/certificate-cache/locks/%s/touch", s.WorkerUrl, url.PathEscape(key))
+						req, err := http.NewRequestWithContext(ctx, "PUT", touchURL, nil)
+						if err != nil {
+							s.Logger.Errorw("Failed to create touch request", "error", err, "key", key)
+							continue
+						}
+						req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+
+						res, err := s.client.Do(req)
+						if err != nil {
+							s.Logger.Errorw("Failed to send touch request", "error", err, "key", key)
+							continue
+						}
+						defer res.Body.Close()
+
+						if res.StatusCode != http.StatusOK {
+							s.Logger.Errorw("Unexpected status code on touch", "status", res.StatusCode, "key", key)
+
+							return
+						} else {
+							s.Logger.Debugw("Lock touched successfully", "key", key)
+						}
+					}
+				}
+			}(ctx, key, stopChan)
+
+			return nil
+		default:
+			return fmt.Errorf("unexpected status code when trying to acquire lock: %d", res.StatusCode)
+		}
+	}
 }
 
-func (s *Linkup) Unlock(_ context.Context, key string) error {
-	// noop
+func (s *Linkup) Unlock(ctx context.Context, key string) error {
+	lockURL := fmt.Sprintf("%s/linkup/certificate-cache/locks/%s", s.WorkerUrl, url.PathEscape(key))
+
+	if value, ok := s.lockStopChannels.LoadAndDelete(key); ok {
+		if stopChan, ok := value.(chan struct{}); ok {
+			close(stopChan)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", lockURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.Token))
+
+	res, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		s.Logger.Infow("Failed to release lock", "url", lockURL, "status", res.StatusCode)
+
+		return fmt.Errorf("failed to release lock; worker responded with HTTP %d", res.StatusCode)
+	}
+
+	s.Logger.Infow("Lock released", "url", lockURL)
+
 	return nil
 }
 
